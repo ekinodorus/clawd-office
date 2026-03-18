@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+__pycache__/
+*.pyc
+.env
+server/venv/
+.claude/
+CLAUDE.md
+docs/
+DESIGN.md

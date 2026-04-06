@@ -23,7 +23,8 @@ from src.utils import get_static_dir, open_browser
 
 # --- FastAPI app ---
 ALLOWED_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173",
-                   "http://localhost:8000", "http://127.0.0.1:8000"]
+                   "http://localhost:8000", "http://127.0.0.1:8000",
+                   "http://localhost:7723", "http://127.0.0.1:7723"]
 
 app = FastAPI(title="clawd-office")
 app.add_middleware(
@@ -51,21 +52,60 @@ async def health():
 
 
 def _browse_directory_sync() -> str | None:
-    import tkinter as tk
-    from tkinter import filedialog
+    if sys.platform == "darwin":
+        # macOS: use AppleScript for reliable folder picker
+        script = (
+            'tell application "System Events" to activate\n'
+            'set chosenFolder to choose folder with prompt "作業ディレクトリを選択"\n'
+            'return POSIX path of chosenFolder'
+        )
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=60,
+            )
+            path = result.stdout.strip().rstrip("/")
+            return path if path else None
+        except (subprocess.TimeoutExpired, Exception):
+            return None
+    else:
+        import tkinter as tk
+        from tkinter import filedialog
 
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-    path = filedialog.askdirectory()
-    root.destroy()
-    return path or None
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askdirectory()
+        root.destroy()
+        return path or None
 
 
 @app.post("/api/browse-directory")
 async def browse_directory():
     path = await asyncio.to_thread(_browse_directory_sync)
     return {"path": path}
+
+
+class OpenPathRequest(BaseModel):
+    path: str
+
+
+@app.post("/api/open-path")
+async def open_path(body: OpenPathRequest):
+    """Open a file or directory with the system default application."""
+    target = os.path.normpath(body.path)
+    if not os.path.exists(target):
+        raise HTTPException(status_code=400, detail="Path does not exist")
+    try:
+        if sys.platform == "win32":
+            os.startfile(target)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", target])
+        else:
+            subprocess.Popen(["xdg-open", target])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to open: {e}")
+    return {"ok": True}
 
 
 class OpenDirectoryRequest(BaseModel):
@@ -102,11 +142,18 @@ if _static_dir.is_dir():
 
 if __name__ == "__main__":
     dev_mode = "--dev" in sys.argv
-    port = 8000
+    port = 7723
+
+    import threading
+
+    def _delayed_open(url: str, delay: float = 1.5) -> None:
+        import time
+        time.sleep(delay)
+        open_browser(url)
 
     if not dev_mode and _static_dir.is_dir():
-        # Production mode: serve built client, open browser
-        open_browser(f"http://localhost:{port}")
+        # Production mode: serve built client, open browser after server starts
+        threading.Thread(target=_delayed_open, args=(f"http://localhost:{port}",), daemon=True).start()
         uvicorn.run("src.main:socket_app", host="127.0.0.1", port=port)
     else:
         # Dev mode: use with Vite dev server (hot reload)

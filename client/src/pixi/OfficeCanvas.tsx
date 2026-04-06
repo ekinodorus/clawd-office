@@ -45,7 +45,7 @@ export function OfficeCanvas({ agents, selectedAgentId, onAgentClick, onEmptyCli
 
   // Collect all sub-agents — only recalculates when sub-agent list actually changes
   const allSubAgents = useMemo(() => {
-    const subs: { sub: AgentInfo['subAgents'][0]; parentDesk: { x: number; y: number }; parentColor: string; index: number }[] = [];
+    const subs: { sub: NonNullable<AgentInfo['subAgents']>[0]; parentDesk: { x: number; y: number }; parentColor: string; index: number }[] = [];
     agents.forEach((agent) => {
       if (!agent.subAgents?.length) return;
       const desk = DESK_POSITIONS[agent.deskIndex] ?? DESK_POSITIONS[0];

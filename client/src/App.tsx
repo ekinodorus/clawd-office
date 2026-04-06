@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useSocket } from './hooks/useSocket';
+import { useNotifications } from './hooks/useNotifications';
 import { OfficeCanvas } from './pixi/OfficeCanvas';
 import { AgentStatusBar } from './components/AgentStatusBar';
 import { ChatPanel } from './components/ChatPanel';
@@ -12,6 +13,7 @@ export function App() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
 
+  const { notificationsEnabled, toggleNotifications } = useNotifications(agents, permissionRequests);
   const panelAgent = panelAgentId ? agents.get(panelAgentId) ?? null : null;
   const confirmAgent = confirmRemoveId ? agents.get(confirmRemoveId) ?? null : null;
 
@@ -94,10 +96,19 @@ export function App() {
         danger
       />
 
-      {/* Connection status */}
-      <div className={`connection-status ${connected ? 'connection-status--connected' : 'connection-status--disconnected'}`}>
-        <span className="connection-status__dot" />
-        {connected ? 'Connected' : 'Disconnected'}
+      {/* Bottom status bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'fixed', bottom: 8, right: 12, zIndex: 100 }}>
+        <button
+          onClick={toggleNotifications}
+          className="notification-toggle"
+          title={notificationsEnabled ? 'Notifications ON — click to mute' : 'Notifications OFF — click to unmute'}
+        >
+          {notificationsEnabled ? '\u{1F514}' : '\u{1F515}'}
+        </button>
+        <div className={`connection-status ${connected ? 'connection-status--connected' : 'connection-status--disconnected'}`}>
+          <span className="connection-status__dot" />
+          {connected ? 'Connected' : 'Disconnected'}
+        </div>
       </div>
     </div>
   );

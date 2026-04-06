@@ -12,13 +12,53 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 const ROLE_LABELS: Record<string, string> = {
-  user: 'YOU',
+  user: 'Knurl',
   assistant: 'AI',
   tool: 'TOOL',
   system: 'SYS',
 };
 
 const COLLAPSE_LENGTH = 600;
+
+const PATH_REGEX = /(\/[\w./-]+(?:\.\w+)?)/g;
+
+function openPath(filePath: string) {
+  fetch('/api/open-path', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: filePath }),
+  }).catch(() => {});
+}
+
+function renderWithLinks(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  const regex = new RegExp(PATH_REGEX);
+  while ((match = regex.exec(text)) !== null) {
+    const path = match[1];
+    // Only linkify paths that look like absolute paths with at least 2 segments
+    if (path.split('/').filter(Boolean).length < 2) continue;
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(
+      <span
+        key={match.index}
+        className="chat-panel__file-link"
+        onClick={() => openPath(path)}
+        title={`Open ${path}`}
+      >
+        {path}
+      </span>
+    );
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts.length > 0 ? parts : [text];
+}
 
 function EntryItem({ entry, agentName }: { entry: ConversationEntry; agentName?: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -46,7 +86,7 @@ function EntryItem({ entry, agentName }: { entry: ConversationEntry; agentName?:
         </span>
         <span className="chat-panel__timestamp">{ts}</span>
       </div>
-      <div className="chat-panel__content">{displayText}</div>
+      <div className="chat-panel__content">{renderWithLinks(displayText)}</div>
       {isLong && (
         <button className="chat-panel__expand" onClick={toggle}>
           {expanded ? 'Collapse' : 'Show more'}
@@ -245,7 +285,7 @@ export function ChatPanel({
   const handleBrowse = useCallback(async () => {
     if (!agent) return;
     try {
-      const res = await fetch('http://localhost:8000/api/browse-directory', { method: 'POST' });
+      const res = await fetch('/api/browse-directory', { method: 'POST' });
       const data = await res.json();
       if (data.path) {
         onUpdateDirectory(agent.id, data.path);
@@ -256,7 +296,7 @@ export function ChatPanel({
   const handleOpen = useCallback(async () => {
     if (!agent?.workDirectory) return;
     try {
-      await fetch('http://localhost:8000/api/open-directory', {
+      await fetch('/api/open-directory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: agent.workDirectory }),
@@ -482,6 +522,7 @@ export function ChatPanel({
         onPrefillConsumed={() => setPromptPrefill('')}
         isWorking={agent.state !== 'idle' && agent.state !== 'error'}
         onAbort={() => onAbortAgent(agent.id)}
+        onListSkills={onListSkills}
       />
     </div>
   );

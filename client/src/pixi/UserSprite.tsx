@@ -2,37 +2,166 @@ import { useRef, useCallback, useState, useEffect } from 'react';
 import { useTick } from '@pixi/react';
 import { Container, Graphics as PixiGraphics } from 'pixi.js';
 import { PIXEL_TILE_SIZE, MAP_COLS, MAP_ROWS, USER_DESK } from '../types';
+import type { AgentInfo } from '../types';
+import { BUDDY_BODIES, BUDDY_RARITIES, type BuddySpecies, type BuddyRarity } from './buddySprites';
 
 const S = PIXEL_TILE_SIZE;
 const MOVE_SPEED = 0.35;
+const MAX_SPEECH_WIDTH = 36; // chars per line in bubble
 
-// Knurl's speech lines
-const SPEECH_LINES = [
-  '...zzz',
-  'yare yare',
-  '...nmu',
-  'good work',
-  '( @_@ )',
-  '~~~~~',
-  'slow and steady',
-  'nyan',
-  '...mog',
-  'carry on',
-  'nice code',
-  'hmm...',
-  '...',
-];
+// --- Speech generation from agent context ---
 
-const KNURL_AA = [
-  '      ,>     ',
-  '     / .--. ',
-  ' @  (  @  ) ',
-  '  \\  \\_--_/ ',
-  '   \\_------  ',
-  '    ~~~~~~~ ',
-];
+const IDLE_LINES = ['...zzz', '...',  '( -_- )'];
 
-export function UserSprite() {
+/** Extract a contextual comment from recent agent activity. */
+function generateSpeech(agents: AgentInfo[]): string | null {
+  const active = agents.filter((a) => a.state !== 'idle');
+  if (active.length === 0) {
+    // Rarely mutter when idle
+    if (Math.random() < 0.25) return pickRandom(IDLE_LINES);
+    return null;
+  }
+
+  const agent = pickRandom(active);
+  const tag = agents.length > 1 ? `[${agent.name}] ` : '';
+
+  // Try to pull from recent conversation
+  const recent = agent.conversationLog.slice(-8);
+  const assistantMsgs = recent.filter((e) => e.role === 'assistant' && e.content.length > 10);
+  const toolMsgs = recent.filter((e) => e.role === 'tool' && e.content.length > 5);
+
+  const r = Math.random();
+
+  // 40%: quote/react to assistant content
+  if (r < 0.4 && assistantMsgs.length > 0) {
+    const msg = assistantMsgs[assistantMsgs.length - 1];
+    return tag + reactToContent(msg.content);
+  }
+
+  // 25%: comment on tool usage
+  if (r < 0.65 && toolMsgs.length > 0) {
+    const msg = toolMsgs[toolMsgs.length - 1];
+    return tag + reactToTool(msg.toolName ?? '', msg.content);
+  }
+
+  // 20%: comment on currentAction
+  if (r < 0.85 && agent.currentAction) {
+    return tag + reactToAction(agent.currentAction);
+  }
+
+  // 15%: generic state comment
+  return tag + genericStateComment(agent.state);
+}
+
+function reactToContent(content: string): string {
+  // Grab a meaningful snippet from assistant text
+  const sentences = content
+    .replace(/```[\s\S]*?```/g, '') // strip code blocks
+    .replace(/\n+/g, ' ')
+    .split(/[.!?]\s+/)
+    .filter((s) => s.length > 8 && s.length < 80);
+
+  if (sentences.length > 0) {
+    const sentence = pickRandom(sentences).trim();
+    const truncated = sentence.length > 60 ? sentence.slice(0, 57) + '...' : sentence;
+    // Wrap in quotes or add a reaction prefix
+    const prefixes = ['"', '*reads* ', '*nods* ', '...', '*peeks* '];
+    const prefix = pickRandom(prefixes);
+    if (prefix === '"') return `"${truncated}"`;
+    return `${prefix}${truncated}`;
+  }
+
+  return pickRandom(['*reading...*', '*watching closely*', 'hmm, interesting...']);
+}
+
+function reactToTool(toolName: string, content: string): string {
+  const t = toolName.toLowerCase();
+  if (t.includes('bash') || t.includes('command')) {
+    const cmd = content.slice(0, 40).split('\n')[0];
+    return pickRandom([
+      `*watches* ${cmd}`,
+      `running ${cmd}...`,
+      '*peeks at terminal*',
+    ]);
+  }
+  if (t.includes('read')) {
+    const file = content.match(/([^\s/]+\.\w+)/)?.[1];
+    return file
+      ? pickRandom([`*peeks at ${file}*`, `reading ${file}...`])
+      : '*reading along*';
+  }
+  if (t.includes('edit') || t.includes('write')) {
+    return pickRandom([
+      '*watches edits*',
+      'changing code...',
+      '*taking notes*',
+    ]);
+  }
+  if (t.includes('grep') || t.includes('glob') || t.includes('search')) {
+    return pickRandom([
+      '*searching too*',
+      'where is it...',
+      '*looks around*',
+    ]);
+  }
+  return pickRandom(['*observing*', '*watching*', 'interesting...']);
+}
+
+function reactToAction(action: string): string {
+  const a = action.toLowerCase();
+  if (a.includes('read')) return '*reading along*';
+  if (a.includes('edit') || a.includes('writ')) return '*watches the changes*';
+  if (a.includes('search') || a.includes('grep')) return 'where could it be...';
+  if (a.includes('bash') || a.includes('run') || a.includes('command')) return '*watches terminal*';
+  if (a.includes('think')) return '*thinking too*';
+  // Truncate and quote
+  const short = action.length > 45 ? action.slice(0, 42) + '...' : action;
+  return `*${short}*`;
+}
+
+function genericStateComment(state: string): string {
+  const lines: Record<string, string[]> = {
+    coding:          ['*watching code flow*', 'nice architecture', 'keep going...'],
+    running_command: ['*stares at terminal*', 'what will happen...', 'brrr...'],
+    searching:       ['*helps look*', 'must be somewhere...', '*searching*'],
+    thinking:        ['*thinking too...*', 'hmm...', 'take your time'],
+    planning:        ['a plan emerges...', '*nods approvingly*', 'good thinking'],
+    waiting_for_user:['waiting...', 'your turn!', '*looks expectantly*'],
+    error:           ['oh no...', '*worried*', 'that does not look right'],
+  };
+  return pickRandom(lines[state] ?? ['*watching*']);
+}
+
+function pickRandom<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/** Wrap text to fit in bubble. */
+function wrapText(text: string, maxWidth: number): string[] {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    if (current.length + word.length + 1 > maxWidth && current.length > 0) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = current ? `${current} ${word}` : word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+// --- Component ---
+
+interface UserSpriteProps {
+  species?: BuddySpecies;
+  rarity?: BuddyRarity;
+  agents?: AgentInfo[];
+}
+
+export function UserSprite({ species = 'snail', rarity = 'uncommon', agents = [] }: UserSpriteProps) {
   const containerRef = useRef<Container>(null);
   const bodyContainerRef = useRef<Container>(null);
 
@@ -42,18 +171,45 @@ export function UserSprite() {
   const homeX = USER_DESK.x * S + S / 2;
   const homeY = (USER_DESK.y - 1) * S + S / 2;
 
+  // Animation frame
+  const [frameIdx, setFrameIdx] = useState(0);
+  const frames = BUDDY_BODIES[species];
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFrameIdx((prev) => (prev + 1) % frames.length);
+    }, 500);
+    return () => clearInterval(interval);
+  }, [frames.length]);
+
   // Speech bubble state
   const [speech, setSpeech] = useState<string | null>(null);
-  const speechTimer = useRef(8 + Math.random() * 15);
+  const speechTimer = useRef(5 + Math.random() * 8);
+  const agentsRef = useRef(agents);
+  agentsRef.current = agents;
+  const lastLogLen = useRef(0);
 
   useEffect(() => {
     const interval = setInterval(() => {
       speechTimer.current -= 1;
       if (speechTimer.current <= 0) {
-        const line = SPEECH_LINES[Math.floor(Math.random() * SPEECH_LINES.length)];
-        setSpeech(line);
-        setTimeout(() => setSpeech(null), 3000);
-        speechTimer.current = 15 + Math.random() * 25;
+        const currentAgents = agentsRef.current;
+        const hasActive = currentAgents.some((a) => a.state !== 'idle');
+
+        // Also trigger on new conversation entries
+        const totalLog = currentAgents.reduce((sum, a) => sum + a.conversationLog.length, 0);
+        const logChanged = totalLog !== lastLogLen.current;
+        lastLogLen.current = totalLog;
+
+        const line = generateSpeech(currentAgents);
+        if (line) {
+          setSpeech(line);
+          setTimeout(() => setSpeech(null), 4000);
+        }
+
+        speechTimer.current = hasActive
+          ? 10 + Math.random() * 15
+          : 30 + Math.random() * 40;
       }
     }, 1000);
     return () => clearInterval(interval);
@@ -93,98 +249,91 @@ export function UserSprite() {
     }
   });
 
-  const drawSnail = useCallback((g: PixiGraphics) => {
-    g.clear();
-    // Render each character of the AA as a small colored block
-    const charW = 3.2;
-    const charH = 5;
-    const totalW = 14 * charW;
-    const totalH = KNURL_AA.length * charH;
-    const ox = -totalW / 2;
-    const oy = -totalH / 2;
+  const spriteText = frames[frameIdx].join('\n');
+  const rarityColor = BUDDY_RARITIES.find((r) => r.name === rarity)?.hex ?? 0x50c878;
 
-    for (let r = 0; r < KNURL_AA.length; r++) {
-      const line = KNURL_AA[r];
-      for (let c = 0; c < line.length; c++) {
-        const ch = line[c];
-        if (ch === ' ') continue;
-        const x = ox + c * charW;
-        const y = oy + r * charH;
-
-        let color = 0x40d870; // default green
-        if (ch === '@') color = 0x50ff90;
-        else if (ch === '~') color = 0x30b858;
-        else if (ch === ',') color = 0x60e898;
-        else if (ch === '>') color = 0x60e898;
-
-        g.rect(x, y, charW, charH);
-        g.fill(color);
-      }
-    }
-  }, []);
+  // Wrap speech for multi-line bubble
+  const speechLines = speech ? wrapText(speech, MAX_SPEECH_WIDTH) : [];
+  const speechDisplay = speechLines.join('\n');
+  const maxLineLen = speechLines.reduce((max, l) => Math.max(max, l.length), 0);
 
   const drawShadow = useCallback((g: PixiGraphics) => {
     g.clear();
-    g.ellipse(0, 18, 16, 2.5);
+    g.ellipse(0, 22, 18, 2.5);
     g.fill({ color: 0x000000, alpha: 0.15 });
   }, []);
 
   const drawBubble = useCallback((g: PixiGraphics) => {
     g.clear();
     if (!speech) return;
-    const w = Math.max(40, speech.length * 6 + 16);
-    const h = 18;
-    const bx = -w / 2;
-    const by = -38;
-    // Bubble bg
-    g.roundRect(bx, by, w, h, 4);
-    g.fill({ color: 0x181850, alpha: 0.92 });
-    g.roundRect(bx, by, w, h, 4);
-    g.stroke({ color: 0x4848a8, width: 1 });
-    // Tail
-    g.moveTo(-3, by + h);
-    g.lineTo(0, by + h + 5);
-    g.lineTo(3, by + h);
-    g.fill({ color: 0x181850, alpha: 0.92 });
-  }, [speech]);
+    const charW = 5.2;
+    const lineH = 11;
+    const padX = 10;
+    const padY = 6;
+    const w = maxLineLen * charW + padX * 2;
+    const h = speechLines.length * lineH + padY * 2;
+    const bx = -w - 10;
+    const by = -h / 2 - 10;
+    // Background
+    g.roundRect(bx, by, w, h, 3);
+    g.fill({ color: 0x101018, alpha: 0.92 });
+    g.roundRect(bx, by, w, h, 3);
+    g.stroke({ color: 0x40d870, width: 1 });
+    // Tail pointing right
+    g.moveTo(bx + w, by + h / 2 - 3);
+    g.lineTo(bx + w + 6, by + h / 2);
+    g.lineTo(bx + w, by + h / 2 + 3);
+    g.fill({ color: 0x101018, alpha: 0.92 });
+  }, [speech, maxLineLen, speechLines.length]);
 
   return (
     <pixiContainer ref={containerRef} x={homeX} y={homeY}>
       <pixiGraphics draw={drawShadow} />
 
       <pixiContainer ref={bodyContainerRef}>
-        <pixiGraphics draw={drawSnail} />
+        <pixiText
+          text={spriteText}
+          anchor={{ x: 0.5, y: 0.5 }}
+          style={{
+            fontSize: 8,
+            fontFamily: "'Menlo', 'Courier New', monospace",
+            fontWeight: '700',
+            fill: rarityColor,
+            letterSpacing: 0.5,
+            lineHeight: 9,
+          }}
+        />
       </pixiContainer>
 
       <pixiText
-        text="Knurl"
+        text={species.charAt(0).toUpperCase() + species.slice(1)}
         x={0}
-        y={20}
+        y={26}
         anchor={{ x: 0.5, y: 0 }}
         style={{
           fontSize: 9,
           fontWeight: '700',
-          fill: 0x40d870,
-          fontFamily: 'Inter, sans-serif',
+          fill: rarityColor,
+          fontFamily: "'Courier New', monospace",
           letterSpacing: 1.5,
           stroke: { color: 0x000000, width: 3 },
         }}
       />
 
-      {/* Speech bubble */}
       {speech && (
         <>
           <pixiGraphics draw={drawBubble} />
           <pixiText
-            text={speech}
-            x={0}
-            y={-31}
+            text={speechDisplay}
+            x={-(maxLineLen * 5.2 + 20) / 2 - 10}
+            y={-10}
             anchor={{ x: 0.5, y: 0.5 }}
             style={{
               fontSize: 9,
               fontWeight: '600',
               fill: 0xc8c8e0,
               fontFamily: "'Courier New', monospace",
+              lineHeight: 11,
             }}
           />
         </>

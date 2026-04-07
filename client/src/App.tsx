@@ -6,6 +6,8 @@ import { AgentStatusBar } from './components/AgentStatusBar';
 import { ChatPanel } from './components/ChatPanel';
 import { AddAgentDialog } from './components/AddAgentDialog';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { BuddyPicker } from './components/BuddyPicker';
+import { loadBuddySpecies, saveBuddySpecies, loadBuddyRarity, saveBuddyRarity, type BuddySpecies, type BuddyRarity } from './pixi/buddySprites';
 
 export function App() {
   const { connected, agents, permissionRequests, addAgent, removeAgent, renameAgent, sendPrompt, updateDirectory, updateColor, updatePermissionMode, updateAllowedTools, abortAgent, respondPermission, listSkills, getClaudeConfig } = useSocket();
@@ -14,6 +16,20 @@ export function App() {
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
 
   const { notificationsEnabled, toggleNotifications } = useNotifications(agents, permissionRequests);
+  const [buddySpecies, setBuddySpecies] = useState<BuddySpecies>(loadBuddySpecies);
+  const [buddyRarity, setBuddyRarity] = useState<BuddyRarity>(loadBuddyRarity);
+  const [showBuddyPicker, setShowBuddyPicker] = useState(false);
+
+  const handleBuddyChange = useCallback((species: BuddySpecies) => {
+    setBuddySpecies(species);
+    saveBuddySpecies(species);
+    setShowBuddyPicker(false);
+  }, []);
+
+  const handleRarityChange = useCallback((rarity: BuddyRarity) => {
+    setBuddyRarity(rarity);
+    saveBuddyRarity(rarity);
+  }, []);
   const panelAgent = panelAgentId ? agents.get(panelAgentId) ?? null : null;
   const confirmAgent = confirmRemoveId ? agents.get(confirmRemoveId) ?? null : null;
 
@@ -61,6 +77,8 @@ export function App() {
           selectedAgentId={panelAgentId}
           onAgentClick={handleAgentClick}
           onEmptyClick={() => setPanelAgentId(null)}
+          buddySpecies={buddySpecies}
+          buddyRarity={buddyRarity}
         />
 
         <ChatPanel
@@ -96,8 +114,25 @@ export function App() {
         danger
       />
 
+      {/* Buddy picker dialog */}
+      <BuddyPicker
+        open={showBuddyPicker}
+        current={buddySpecies}
+        currentRarity={buddyRarity}
+        onSelect={handleBuddyChange}
+        onRaritySelect={handleRarityChange}
+        onClose={() => setShowBuddyPicker(false)}
+      />
+
       {/* Bottom status bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'fixed', bottom: 8, right: 12, zIndex: 100 }}>
+        <button
+          onClick={() => setShowBuddyPicker(true)}
+          className="notification-toggle"
+          title={`Buddy: ${buddySpecies} — click to change`}
+        >
+          /buddy
+        </button>
         <button
           onClick={toggleNotifications}
           className="notification-toggle"

@@ -1,4 +1,4 @@
-import { useRef, useCallback, useMemo } from 'react';
+import { useRef, useCallback, useMemo, memo } from 'react';
 import { StableApplication } from './StableApplication';
 import { Graphics as PixiGraphics } from 'pixi.js';
 import './setup';
@@ -9,15 +9,21 @@ import { UserSprite } from './UserSprite';
 import { AgentSprite } from './AgentSprite';
 import { SubAgentSprite } from './SubAgentSprite';
 import { AmbientParticles } from './effects/AmbientParticles';
+import type { BuddySpecies, BuddyRarity } from './buddySprites';
 
 interface OfficeCanvasProps {
   agents: Map<string, AgentInfo>;
   selectedAgentId: string | null;
   onAgentClick: (agentId: string) => void;
   onEmptyClick: () => void;
+  buddySpecies?: BuddySpecies;
+  buddyRarity?: BuddyRarity;
 }
 
-export function OfficeCanvas({ agents, selectedAgentId, onAgentClick, onEmptyClick }: OfficeCanvasProps) {
+export function OfficeCanvas({ agents, selectedAgentId, onAgentClick, onEmptyClick, buddySpecies = 'snail', buddyRarity = 'uncommon' }: OfficeCanvasProps) {
+  // Collect agents list for buddy speech
+  const agentList = useMemo(() => Array.from(agents.values()), [agents]);
+
   // Flag to suppress wrapper click when a Pixi agent was clicked
   const agentClickedRef = useRef(false);
 
@@ -101,7 +107,7 @@ export function OfficeCanvas({ agents, selectedAgentId, onAgentClick, onEmptyCli
 
         {/* Layer 1: User */}
         <pixiContainer>
-          <UserSprite />
+          <UserSprite species={buddySpecies} rarity={buddyRarity} agents={agentList} />
         </pixiContainer>
 
         {/* Layer 2: Agents + Sub-agents */}

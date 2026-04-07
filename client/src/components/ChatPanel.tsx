@@ -11,7 +11,7 @@ const ROLE_COLORS: Record<string, string> = {
   system: '#8b949e',
 };
 
-const ROLE_LABELS: Record<string, string> = {
+const DEFAULT_ROLE_LABELS: Record<string, string> = {
   user: 'Knurl',
   assistant: 'AI',
   tool: 'TOOL',
@@ -60,15 +60,16 @@ function renderWithLinks(text: string): React.ReactNode[] {
   return parts.length > 0 ? parts : [text];
 }
 
-function EntryItem({ entry, agentName }: { entry: ConversationEntry; agentName?: string }) {
+function EntryItem({ entry, agentName, buddyName }: { entry: ConversationEntry; agentName?: string; buddyName?: string }) {
   const [expanded, setExpanded] = useState(false);
   const d = new Date(entry.timestamp);
   const ts = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const roleLabels: Record<string, string> = { ...DEFAULT_ROLE_LABELS, ...(buddyName ? { user: buddyName } : {}) };
   const label = entry.toolName
     ? entry.toolName
     : entry.role === 'assistant' && agentName
       ? agentName
-      : ROLE_LABELS[entry.role] || entry.role.toUpperCase();
+      : roleLabels[entry.role] || entry.role.toUpperCase();
   const roleColor = ROLE_COLORS[entry.role] || '#8b949e';
 
   const isLong = entry.content.length > COLLAPSE_LENGTH;
@@ -216,11 +217,13 @@ interface ChatPanelProps {
   onRespondPermission: (requestId: string, agentId: string, type: string, answers: Record<string, string>) => void;
   onListSkills: (agentId: string) => Promise<{ skills: SkillInfo[] }>;
   onGetClaudeConfig: (agentId: string) => Promise<{ content: string | null }>;
+  buddyName?: string;
 }
 
 export function ChatPanel({
   agent, onSendPrompt, onRemoveAgent, onRenameAgent, onUpdateDirectory, onUpdateColor,
   onUpdatePermissionMode, onAbortAgent, permissionRequests, onRespondPermission, onListSkills, onGetClaudeConfig,
+  buddyName,
 }: ChatPanelProps) {
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState('');
@@ -431,7 +434,7 @@ export function ChatPanel({
             {agent.conversationLog
               .filter((entry) => entry.role !== 'tool' && entry.role !== 'system')
               .map((entry, i) => (
-                <EntryItem key={i} entry={entry} agentName={agent.name} />
+                <EntryItem key={i} entry={entry} agentName={agent.name} buddyName={buddyName} />
               ))}
 
             {/* Inline permission request cards */}

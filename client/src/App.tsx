@@ -94,6 +94,7 @@ export function App() {
           onRespondPermission={respondPermission}
           onListSkills={listSkills}
           onGetClaudeConfig={getClaudeConfig}
+          buddyName={buddySpecies.charAt(0).toUpperCase() + buddySpecies.slice(1)}
         />
       </div>
 
@@ -125,7 +126,7 @@ export function App() {
       />
 
       {/* Bottom status bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'fixed', bottom: 8, right: 12, zIndex: 100 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'fixed', bottom: 8, left: 12, zIndex: 100 }}>
         <button
           onClick={() => setShowBuddyPicker(true)}
           className="notification-toggle"

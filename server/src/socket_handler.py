@@ -94,15 +94,13 @@ def setup_socket_handler(sio: socketio.AsyncServer, manager: AgentManager) -> No
         manager.resolve_permission(request_id, answers)
 
     @sio.on("list_skills")
-    async def on_list_skills(sid: str, data: dict, callback=None) -> None:
+    async def on_list_skills(sid: str, data: dict) -> dict:
         agent_id = data.get("agentId", "")
         result = await manager.list_skills(agent_id)
-        if callback:
-            callback(result)
+        print(f"[Socket] list_skills for {agent_id}: {len(result.get('skills', []))} skills found")
+        return result
 
     @sio.on("get_claude_config")
-    async def on_get_claude_config(sid: str, data: dict, callback=None) -> None:
+    async def on_get_claude_config(sid: str, data: dict) -> dict:
         agent_id = data.get("agentId", "")
-        result = await manager.get_claude_config(agent_id)
-        if callback:
-            callback(result)
+        return await manager.get_claude_config(agent_id)

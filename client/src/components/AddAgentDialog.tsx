@@ -86,7 +86,7 @@ export function AddAgentDialog({ open, onClose, onSubmit }: AddAgentDialogProps)
             type="button"
             onClick={async () => {
               try {
-                const res = await fetch('http://localhost:8000/api/browse-directory', { method: 'POST' });
+                const res = await fetch('/api/browse-directory', { method: 'POST' });
                 const data = await res.json();
                 if (data.path) setWorkDirectory(data.path);
               } catch { /* dialog cancelled or server error */ }

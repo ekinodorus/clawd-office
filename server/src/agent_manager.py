@@ -543,17 +543,11 @@ class AgentManager:
         agent = self._agents.get(agent_id)
         return agent.to_client_dict() if agent else None
 
-    async def list_skills(self, agent_id: str) -> dict:
-        """List skills from the agent's workDirectory/.claude/skills/*/SKILL.md."""
-        agent = self._agents.get(agent_id)
-        if not agent or not agent.work_directory:
-            return {"skills": []}
-
-        skills_dir = Path(agent.work_directory) / ".claude" / "skills"
+    def _parse_skills_dir(self, skills_dir: Path) -> list[dict]:
+        """Parse SKILL.md files from a skills directory."""
         if not skills_dir.is_dir():
-            return {"skills": []}
-
-        skills = []
+            return []
+        results = []
         try:
             for skill_dir in sorted(skills_dir.iterdir()):
                 skill_file = skill_dir / "SKILL.md"
@@ -561,7 +555,6 @@ class AgentManager:
                     continue
                 try:
                     content = skill_file.read_text(encoding="utf-8")
-                    # Parse YAML frontmatter
                     name = skill_dir.name
                     description = ""
                     argument_hint = ""
@@ -575,7 +568,7 @@ class AgentManager:
                                 description = line.split(":", 1)[1].strip().strip('"\'')
                             elif line.startswith("argument-hint:"):
                                 argument_hint = line.split(":", 1)[1].strip().strip('"\'')
-                    skills.append({
+                    results.append({
                         "name": name,
                         "description": description,
                         "argumentHint": argument_hint,
@@ -583,7 +576,30 @@ class AgentManager:
                 except Exception:
                     continue
         except (FileNotFoundError, PermissionError):
-            return {"skills": []}
+            pass
+        return results
+
+    async def list_skills(self, agent_id: str) -> dict:
+        """List skills from both user-level and project-level .claude/skills/."""
+        agent = self._agents.get(agent_id)
+        seen_names: set[str] = set()
+        skills: list[dict] = []
+
+        # 1. Project-level skills (higher priority)
+        if agent and agent.work_directory:
+            project_skills_dir = Path(agent.work_directory) / ".claude" / "skills"
+            for s in self._parse_skills_dir(project_skills_dir):
+                if s["name"] not in seen_names:
+                    seen_names.add(s["name"])
+                    skills.append(s)
+
+        # 2. User-level skills (~/.claude/skills/)
+        user_skills_dir = Path.home() / ".claude" / "skills"
+        for s in self._parse_skills_dir(user_skills_dir):
+            if s["name"] not in seen_names:
+                seen_names.add(s["name"])
+                skills.append(s)
+
         return {"skills": skills}
 
     async def get_claude_config(self, agent_id: str) -> dict:

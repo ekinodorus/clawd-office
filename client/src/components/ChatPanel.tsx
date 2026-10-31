@@ -11,8 +11,8 @@ const ROLE_COLORS: Record<string, string> = {
   system: '#8b949e',
 };
 
-const ROLE_LABELS: Record<string, string> = {
-  user: 'YOU',
+const DEFAULT_ROLE_LABELS: Record<string, string> = {
+  user: 'Knurl',
   assistant: 'AI',
   tool: 'TOOL',
   system: 'SYS',
@@ -20,15 +20,56 @@ const ROLE_LABELS: Record<string, string> = {
 
 const COLLAPSE_LENGTH = 600;
 
-function EntryItem({ entry, agentName }: { entry: ConversationEntry; agentName?: string }) {
+const PATH_REGEX = /(\/[\w./-]+(?:\.\w+)?)/g;
+
+function openPath(filePath: string) {
+  fetch('/api/open-path', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: filePath }),
+  }).catch(() => {});
+}
+
+function renderWithLinks(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  const regex = new RegExp(PATH_REGEX);
+  while ((match = regex.exec(text)) !== null) {
+    const path = match[1];
+    // Only linkify paths that look like absolute paths with at least 2 segments
+    if (path.split('/').filter(Boolean).length < 2) continue;
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(
+      <span
+        key={match.index}
+        className="chat-panel__file-link"
+        onClick={() => openPath(path)}
+        title={`Open ${path}`}
+      >
+        {path}
+      </span>
+    );
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts.length > 0 ? parts : [text];
+}
+
+function EntryItem({ entry, agentName, buddyName }: { entry: ConversationEntry; agentName?: string; buddyName?: string }) {
   const [expanded, setExpanded] = useState(false);
   const d = new Date(entry.timestamp);
   const ts = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const roleLabels: Record<string, string> = { ...DEFAULT_ROLE_LABELS, ...(buddyName ? { user: buddyName } : {}) };
   const label = entry.toolName
     ? entry.toolName
     : entry.role === 'assistant' && agentName
       ? agentName
-      : ROLE_LABELS[entry.role] || entry.role.toUpperCase();
+      : roleLabels[entry.role] || entry.role.toUpperCase();
   const roleColor = ROLE_COLORS[entry.role] || '#8b949e';
 
   const isLong = entry.content.length > COLLAPSE_LENGTH;
@@ -46,7 +87,7 @@ function EntryItem({ entry, agentName }: { entry: ConversationEntry; agentName?:
         </span>
         <span className="chat-panel__timestamp">{ts}</span>
       </div>
-      <div className="chat-panel__content">{displayText}</div>
+      <div className="chat-panel__content">{renderWithLinks(displayText)}</div>
       {isLong && (
         <button className="chat-panel__expand" onClick={toggle}>
           {expanded ? 'Collapse' : 'Show more'}
@@ -176,11 +217,13 @@ interface ChatPanelProps {
   onRespondPermission: (requestId: string, agentId: string, type: string, answers: Record<string, string>) => void;
   onListSkills: (agentId: string) => Promise<{ skills: SkillInfo[] }>;
   onGetClaudeConfig: (agentId: string) => Promise<{ content: string | null }>;
+  buddyName?: string;
 }
 
 export function ChatPanel({
   agent, onSendPrompt, onRemoveAgent, onRenameAgent, onUpdateDirectory, onUpdateColor,
   onUpdatePermissionMode, onAbortAgent, permissionRequests, onRespondPermission, onListSkills, onGetClaudeConfig,
+  buddyName,
 }: ChatPanelProps) {
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState('');
@@ -245,7 +288,7 @@ export function ChatPanel({
   const handleBrowse = useCallback(async () => {
     if (!agent) return;
     try {
-      const res = await fetch('http://localhost:8000/api/browse-directory', { method: 'POST' });
+      const res = await fetch('/api/browse-directory', { method: 'POST' });
       const data = await res.json();
       if (data.path) {
         onUpdateDirectory(agent.id, data.path);
@@ -256,7 +299,7 @@ export function ChatPanel({
   const handleOpen = useCallback(async () => {
     if (!agent?.workDirectory) return;
     try {
-      await fetch('http://localhost:8000/api/open-directory', {
+      await fetch('/api/open-directory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: agent.workDirectory }),
@@ -391,7 +434,7 @@ export function ChatPanel({
             {agent.conversationLog
               .filter((entry) => entry.role !== 'tool' && entry.role !== 'system')
               .map((entry, i) => (
-                <EntryItem key={i} entry={entry} agentName={agent.name} />
+                <EntryItem key={i} entry={entry} agentName={agent.name} buddyName={buddyName} />
               ))}
 
             {/* Inline permission request cards */}
@@ -482,6 +525,7 @@ export function ChatPanel({
         onPrefillConsumed={() => setPromptPrefill('')}
         isWorking={agent.state !== 'idle' && agent.state !== 'error'}
         onAbort={() => onAbortAgent(agent.id)}
+        onListSkills={onListSkills}
       />
     </div>
   );
